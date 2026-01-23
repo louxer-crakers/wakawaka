@@ -5,4 +5,4 @@
 `DB_USER=dbadmin<br/>`
 `DB_PASSWORD=TechnoCloud2026!<br/>`
 `S3_BUCKET=yourbucket <br/>`
-`STEPFUNCTIONS_ARN=ARN Step Functions state machine<br/>`
+`STATE_MACHINE_ARN=ARN Step Functions state machine<br/>`

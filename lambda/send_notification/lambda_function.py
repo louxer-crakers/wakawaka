@@ -1,97 +1,137 @@
 import json
 import os
 import boto3
+from datetime import datetime
 
-sns_client = boto3.client('sns')
-SNS_TOPIC_ARN = os.environ.get('SNS_TOPIC_ARN')
+# ==============================
+# AWS CLIENT
+# ==============================
+sns_client = boto3.client("sns")
+SNS_TOPIC_ARN = os.environ.get("SNS_TOPIC_ARN")
+
 
 def lambda_handler(event, context):
     """
     Send notifications via SNS
+    Event source: AWS Step Functions
     """
+
+    print("📩 Incoming event:")
+    print(json.dumps(event, indent=2))
+
     try:
-        order_id = event.get('order_id')
-        notification_type = event.get('notification_type', 'order_confirmation')
-        
-        # Build notification message based on type
-        if notification_type == 'order_confirmation':
+        # ==============================
+        # COMMON FIELDS
+        # ==============================
+        order_id = event.get("order_id", "UNKNOWN")
+        notification_type = event.get("notification_type", "system_error")
+        error_message = event.get("error_message", "-")
+        amount = event.get("amount", 0)
+        transaction_id = event.get("transaction_id", "N/A")
+
+        # ==============================
+        # BUILD MESSAGE
+        # ==============================
+        if notification_type == "order_confirmation":
             subject = f"Order Confirmation - {order_id}"
             message = f"""
 Order Confirmation
 
-Order ID: {order_id}
-Status: Confirmed
-Payment: Success
+Order ID      : {order_id}
+Status        : Confirmed
+Payment       : Success
+Transaction ID: {transaction_id}
+Amount        : ${amount}
 
-Your order has been successfully processed and confirmed.
-Thank you for your order!
+Your order has been successfully processed.
+Thank you for your purchase!
+"""
 
-Transaction ID: {event.get('transaction_id', 'N/A')}
-Amount: ${event.get('total_amount', 0)}
-            """
-        elif notification_type == 'payment_failed':
+        elif notification_type == "payment_failed":
             subject = f"Payment Failed - {order_id}"
             message = f"""
 Payment Processing Failed
 
-Order ID: {order_id}
-Status: Payment Failed
+Order ID : {order_id}
+Status   : Payment Failed
+Amount   : ${amount}
 
-We were unable to process your payment. 
+Reason:
+{error_message}
+
 Please try again or contact support.
-            """
-        elif notification_type == 'order_shipped':
+"""
+
+        elif notification_type == "order_shipped":
             subject = f"Order Shipped - {order_id}"
             message = f"""
 Order Shipped
 
-Order ID: {order_id}
-Status: Shipped
+Order ID : {order_id}
+Status   : Shipped
 
-Your order has been shipped and is on the way!
-            """
-        elif notification_type == 'low_stock':
+Your order is on the way.
+Thank you for shopping with us!
+"""
+
+        elif notification_type == "low_stock":
             subject = "Low Stock Alert"
+            low_stock_items = event.get("low_stock_items", [])
             message = f"""
 Low Stock Alert
 
-The following products have low stock levels:
-{json.dumps(event.get('low_stock_items', []), indent=2)}
+The following items are running low:
 
-Please reorder soon.
-            """
-        elif notification_type == 'system_error':
+{json.dumps(low_stock_items, indent=2)}
+
+Please restock as soon as possible.
+"""
+
+        elif notification_type == "system_error":
             subject = f"System Error - {order_id}"
             message = f"""
 System Error Notification
 
-Order ID: {order_id}
-Error: {event.get('error_message', 'Unknown error')}
+Order ID : {order_id}
+Error    : {error_message}
 
-Please investigate immediately.
-            """
+Timestamp: {datetime.utcnow().isoformat()}
+
+Immediate investigation is required.
+"""
+
         else:
             subject = "Order Management Notification"
             message = json.dumps(event, indent=2)
-        
-        # Send SNS notification
+
+        # ==============================
+        # SEND SNS
+        # ==============================
         response = sns_client.publish(
             TopicArn=SNS_TOPIC_ARN,
             Subject=subject,
-            Message=message
+            Message=message.strip()
         )
-        
+
+        print("✅ SNS message sent:", response["MessageId"])
+
         return {
-            'order_id': order_id,
-            'status': 'success',
-            'message': 'Notification sent successfully',
-            'message_id': response['MessageId']
+            "status": "success",
+            "order_id": order_id,
+            "notification_type": notification_type,
+            "message_id": response["MessageId"],
+            "timestamp": datetime.utcnow().isoformat()
         }
-        
+
     except Exception as e:
-        print(f"Error sending notification: {str(e)}")
+        print("❌ Error sending notification:", str(e))
+
+        # IMPORTANT:
+        # Jangan raise exception supaya Step Function tidak FAILED total
         return {
-            'order_id': event.get('order_id'),
-            'status': 'error',
-            'message': f'Notification failed: {str(e)}'
+            "status": "error",
+            "order_id": order_id if "order_id" in locals() else None,
+            "error": str(e),
+            "timestamp": datetime.utcnow().isoformat()
         }
+        conn.close()
