@@ -1,3 +1,3 @@
 # Environment Variables
 
-SNS_TOPIC_ARN=[ARN SNS Topic]
+SNS_TOPIC_ARN=your ARN SNS
