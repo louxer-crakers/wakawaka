@@ -27,17 +27,17 @@ This API provides a complete order management system with the following features
 ## API Endpoints
 
 ### Base URL
-\\
+\
 https://{api-id}.execute-api.{region}.amazonaws.com/{stage}
-\\
+\
 
 ### 1. Create Order
-**POST** \/orders\
+**POST** \/orders
 
 Creates a new order, saves to database and S3, and starts a Step Functions workflow.
 
-**Request:**
-\\\ash
+**Request:**<br/>
+\
 curl -X POST \
   -H "Content-Type: application/json" \
   -H "x-api-key: YOUR_API_KEY" \
@@ -49,16 +49,16 @@ curl -X POST \
     ]
   }' \
   https://your-api-id.execute-api.region.amazonaws.com/stage/orders
-\\\
+\
 
-**Response (201 Created):**
-\\\json
+**Response (201 Created):**\
+\\json
 {
-  "message": "Order created successfully",
-  "order_id": "550e8400-e29b-41d4-a716-446655440000",
-  "execution_arn": "arn:aws:states:us-east-1:123456789012:execution:OrderProcessingStateMachine:550e8400-e29b-41d4-a716-446655440000",
-  "note": "Save this execution_arn to check workflow status later"
-}
+  "message": "Order created successfully",\
+  "order_id": "550e8400-e29b-41d4-a716-446655440000",\
+  "execution_arn": "arn:aws:states:us-east-1:123456789012:execution:OrderProcessingStateMachine:550e8400-e29b-41d4-a716-446655440000",\
+  "note": "Save this execution_arn to check workflow status later"\
+}\
 \\\
 
 ### 2. List Orders
