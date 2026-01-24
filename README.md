@@ -146,7 +146,6 @@ curl -X PUT \
   -H "x-api-key: YOUR_API_KEY" \
   -d '{"status": "processing"}' \
   "https://your-api-id.execute-api.region.amazonaws.com/stage/orders/550e8400-e29b-41d4-a716-446655440000"
-\
 
 **Response (200 OK):**
 \
@@ -154,7 +153,7 @@ curl -X PUT \
   "message": "Order updated successfully",\
   "order_id": "550e8400-e29b-41d4-a716-446655440000",\
   "status": "processing"\
-}\
+}
 
 ### 5. Delete Order
 **DELETE** \/orders/{order_id}
@@ -166,14 +165,13 @@ Deletes an order and its associated items from the database.
 curl -X DELETE \
   -H "x-api-key: YOUR_API_KEY" \
   "https://your-api-id.execute-api.region.amazonaws.com/stage/orders/550e8400-e29b-41d4-a716-446655440000"
-\
 
 **Response (200 OK):**
 \
 {\
   "message": "Order deleted successfully",\
   "order_id": "550e8400-e29b-41d4-a716-446655440000"\
-}\
+}
 
 ### 6. Get Workflow Status
 **GET** \/status/{identifier}
@@ -185,14 +183,12 @@ Checks the status of a Step Functions workflow execution. Accepts either executi
 curl -X GET \
   -H "x-api-key: YOUR_API_KEY" \
   "https://your-api-id.execute-api.region.amazonaws.com/stage/status/550e8400-e29b-41d4-a716-446655440000"
-\
 
 **Request with Execution ARN:**
 \
 curl -X GET \
   -H "x-api-key: YOUR_API_KEY" \
   "https://your-api-id.execute-api.region.amazonaws.com/stage/status/arn:aws:states:us-east-1:123456789012:execution:OrderProcessingStateMachine:550e8400-e29b-41d4-a716-446655440000"
-\
 
 **Response (200 OK):**
 \
@@ -210,7 +206,7 @@ curl -X GET \
     }\
   ]\
 }
-\
+
 
 ## Authentication
 
@@ -218,7 +214,7 @@ All endpoints require API Key authentication. Include the API Key in the request
 
 \
 x-api-key: your-api-key-here
-\
+
 
 ## Order Status Values
 
@@ -238,13 +234,12 @@ x-api-key: your-api-key-here
 {\
   "message": "Missing required field: customer_id"\
 }
-\
 
 ### 403 Forbidden
 \
 {\
   "message": "Forbidden"\
-}\
+}
 
 
 ### 404 Not Found
@@ -252,14 +247,14 @@ x-api-key: your-api-key-here
 {\
   "message": "Order not found"\
 }
-\
+
 
 ### 500 Internal Server Error
 \
 {\
   "message": "Internal server error",\
   "error": "Detailed error message"\
-}\
+}
 
 
 ## Support
