@@ -49,7 +49,7 @@ curl -X POST
     ]
   }' 
   https://your-api-id.execute-api.region.amazonaws.com/stage/orders
-<br/>
+<br/>json```
 
 **Response (201 Created):**<br/>
 ```json
