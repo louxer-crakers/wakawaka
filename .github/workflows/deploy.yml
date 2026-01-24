@@ -1,0 +1,676 @@
+name: LKS Cloud Computing - Deploy Frontend
+
+on:
+  workflow_dispatch:
+    inputs:
+      deployment_mode:
+        description: '🎯 Mode Deployment'
+        required: true
+        type: choice
+        options:
+          - peserta-mode
+          - juri-test-mode
+          - admin-mode
+        default: 'peserta-mode'
+      
+      lks_token:
+        description: '🔐 Token LKS (untuk peserta)'
+        required: false
+        type: string
+        default: ''
+        help: 'Diisi hanya jika mode = peserta-mode'
+      
+      participant_id:
+        description: '🎓 ID Peserta'
+        required: false
+        type: string
+        default: ''
+        help: 'Diisi hanya jika mode = peserta-mode'
+      
+      participant_name:
+        description: '👤 Nama Peserta'
+        required: false
+        type: string
+        default: ''
+        help: 'Diisi hanya jika mode = peserta-mode'
+      
+      jury_test_id:
+        description: '👨‍⚖️ ID Testing Juri'
+        required: false
+        type: string
+        default: ''
+        help: 'Diisi hanya jika mode = juri-test-mode'
+      
+      test_app_name:
+        description: '🧪 Nama App Testing'
+        required: false
+        type: string
+        default: 'lks-jury-test-app'
+        help: 'Nama Amplify app untuk testing'
+      
+      test_environment:
+        description: '⚙️ Environment Testing'
+        required: false
+        type: choice
+        options:
+          - staging
+          - development
+          - production-test
+        default: 'staging'
+      
+      destroy_after_test:
+        description: '🗑️ Hapus setelah testing?'
+        required: false
+        type: boolean
+        default: false
+        help: 'Hapus resources setelah selesai testing'
+
+env:
+  AWS_REGION: us-east-1
+  COMPETITION_NAME: "LKS Cloud Computing 2024"
+  JURY_TEST_CREDENTIALS: ${{ secrets.JURY_TEST_CREDENTIALS }}
+
+jobs:
+  determine-mode:
+    name: 🎯 Determine Deployment Mode
+    runs-on: ubuntu-latest
+    outputs:
+      mode: ${{ steps.mode-check.outputs.mode }}
+      is_jury_test: ${{ steps.mode-check.outputs.is_jury_test }}
+      is_participant_mode: ${{ steps.mode-check.outputs.is_participant_mode }}
+      app_name: ${{ steps.mode-check.outputs.app_name }}
+      deployment_id: ${{ steps.mode-check.outputs.deployment_id }}
+    
+    steps:
+      - name: 📝 Mode Detection
+        id: mode-check
+        run: |
+          DEPLOYMENT_MODE="${{ github.event.inputs.deployment_mode }}"
+          
+          echo "Selected mode: $DEPLOYMENT_MODE"
+          echo "Actor: ${{ github.actor }}"
+          echo "Repository: ${{ github.repository }}"
+          
+          case $DEPLOYMENT_MODE in
+            "peserta-mode")
+              echo "🎓 MODE: PESERTA"
+              echo "mode=peserta" >> $GITHUB_OUTPUT
+              echo "is_participant_mode=true" >> $GITHUB_OUTPUT
+              echo "is_jury_test=false" >> $GITHUB_OUTPUT
+              
+              # Validasi input peserta
+              if [ -z "${{ github.event.inputs.lks_token }}" ]; then
+                echo "❌ Token peserta harus diisi!"
+                exit 1
+              fi
+              
+              if [ -z "${{ github.event.inputs.participant_id }}" ]; then
+                echo "❌ ID peserta harus diisi!"
+                exit 1
+              fi
+              
+              # Generate app name untuk peserta
+              APP_NAME="lks-cc-${{ github.event.inputs.participant_id }}-app"
+              DEPLOYMENT_ID="PESERTA-${{ github.event.inputs.participant_id }}-$(date +%Y%m%d-%H%M%S)"
+              ;;
+            
+            "juri-test-mode")
+              echo "👨‍⚖️ MODE: JURI TESTING"
+              echo "mode=juri-test" >> $GITHUB_OUTPUT
+              echo "is_participant_mode=false" >> $GITHUB_OUTPUT
+              echo "is_jury_test=true" >> $GITHUB_OUTPUT
+              
+              # Gunakan app name dari input atau default
+              APP_NAME="${{ github.event.inputs.test_app_name }}"
+              if [ -z "$APP_NAME" ]; then
+                APP_NAME="lks-jury-test-app"
+              fi
+              
+              TEST_ID="${{ github.event.inputs.jury_test_id }}"
+              if [ -z "$TEST_ID" ]; then
+                TEST_ID="JURY-$(echo ${{ github.actor }} | cut -c1-8)"
+              fi
+              
+              DEPLOYMENT_ID="JURY-TEST-$TEST_ID-$(date +%Y%m%d-%H%M%S)"
+              ;;
+            
+            "admin-mode")
+              echo "⚙️ MODE: ADMIN"
+              echo "mode=admin" >> $GITHUB_OUTPUT
+              echo "is_participant_mode=false" >> $GITHUB_OUTPUT
+              echo "is_jury_test=false" >> $GITHUB_OUTPUT
+              
+              # Verifikasi admin (cukup actor tertentu)
+              ALLOWED_ADMINS="handipradana,juri-utama,admin-lks"
+              ACTOR="${{ github.actor }}"
+              
+              if [[ ! $ALLOWED_ADMINS =~ $ACTOR ]]; then
+                echo "❌ Akses ditolak! Hanya admin yang bisa menggunakan mode ini."
+                exit 1
+              fi
+              
+              APP_NAME="lks-admin-$ACTOR-$(date +%m%d)"
+              DEPLOYMENT_ID="ADMIN-$ACTOR-$(date +%Y%m%d-%H%M%S)"
+              ;;
+          esac
+          
+          echo "App Name: $APP_NAME"
+          echo "Deployment ID: $DEPLOYMENT_ID"
+          
+          echo "app_name=$APP_NAME" >> $GITHUB_OUTPUT
+          echo "deployment_id=$DEPLOYMENT_ID" >> $GITHUB_OUTPUT
+          
+          # Simpan ke environment
+          echo "DEPLOYMENT_MODE=$DEPLOYMENT_MODE" >> $GITHUB_ENV
+          echo "APP_NAME=$APP_NAME" >> $GITHUB_ENV
+          echo "DEPLOYMENT_ID=$DEPLOYMENT_ID" >> $GITHUB_ENV
+
+  token-validation:
+    name: 🔐 Token Validation (Peserta Only)
+    runs-on: ubuntu-latest
+    needs: determine-mode
+    if: needs.determine-mode.outputs.is_participant_mode == 'true'
+    outputs:
+      token_valid: ${{ steps.validate.outputs.token_valid }}
+      participant_data: ${{ steps.validate.outputs.participant_data }}
+    
+    steps:
+      - name: 🏆 Validate Participant Token
+        id: validate
+        run: |
+          TOKEN="${{ github.event.inputs.lks_token }}"
+          PARTICIPANT_ID="${{ github.event.inputs.participant_id }}"
+          
+          echo "Validating token for participant: $PARTICIPANT_ID"
+          
+          # Validasi format
+          if [[ ! $TOKEN =~ ^LKS-CC-2024-[A-Z0-9]{8}$ ]]; then
+            echo "❌ Format token invalid"
+            echo "token_valid=false" >> $GITHUB_OUTPUT
+            exit 1
+          fi
+          
+          # Cek di valid tokens
+          VALID_TOKENS="${{ secrets.LKS_VALID_TOKENS }}"
+          TOKEN_HASH=$(echo -n "$TOKEN" | sha256sum | cut -d' ' -f1)
+          
+          IFS=',' read -ra TOKEN_LIST <<< "$VALID_TOKENS"
+          
+          for item in "${TOKEN_LIST[@]}"; do
+            IFS=':' read -ra PARTS <<< "$item"
+            if [ "${PARTS[0]}" = "$TOKEN_HASH" ] && [ "${PARTS[1]}" = "$PARTICIPANT_ID" ]; then
+              echo "✅ Token valid"
+              echo "token_valid=true" >> $GITHUB_OUTPUT
+              echo "participant_data=${PARTS[1]}:${PARTS[2]}:${PARTS[3]}" >> $GITHUB_OUTPUT
+              
+              echo "LKS_PARTICIPANT_ID=${PARTS[1]}" >> $GITHUB_ENV
+              echo "LKS_PARTICIPANT_NAME=${PARTS[2]}" >> $GITHUB_ENV
+              echo "LKS_STAGE=${PARTS[3]}" >> $GITHUB_ENV
+              exit 0
+            fi
+          done
+          
+          echo "❌ Token tidak valid atau tidak cocok dengan ID peserta"
+          echo "token_valid=false" >> $GITHUB_OUTPUT
+          exit 1
+
+  jury-authentication:
+    name: 👨‍⚖️ Jury Authentication
+    runs-on: ubuntu-latest
+    needs: determine-mode
+    if: needs.determine-mode.outputs.is_jury_test == 'true'
+    outputs:
+      jury_verified: ${{ steps.verify-jury.outputs.jury_verified }}
+      jury_id: ${{ steps.verify-jury.outputs.jury_id }}
+    
+    steps:
+      - name: 🔒 Verify Jury Access
+        id: verify-jury
+        run: |
+          echo "Verifying jury access for: ${{ github.actor }}"
+          
+          # List juri yang diizinkan dari secrets
+          ALLOWED_JURY="${{ secrets.LKS_JURY_LIST }}"
+          
+          if [[ $ALLOWED_JURY == *"${{ github.actor }}"* ]]; then
+            echo "✅ Jury verified: ${{ github.actor }}"
+            echo "jury_verified=true" >> $GITHUB_OUTPUT
+            echo "jury_id=${{ github.actor }}" >> $GITHUB_OUTPUT
+            
+            # Gunakan test ID dari input atau generate
+            TEST_ID="${{ github.event.inputs.jury_test_id }}"
+            if [ -z "$TEST_ID" ]; then
+              TEST_ID="JURY-${{ github.actor }}-$(date +%H%M%S)"
+            fi
+            
+            echo "JURY_TEST_ID=$TEST_ID" >> $GITHUB_ENV
+            echo "TEST_ENVIRONMENT=${{ github.event.inputs.test_environment }}" >> $GITHUB_ENV
+            echo "DESTROY_AFTER_TEST=${{ github.event.inputs.destroy_after_test }}" >> $GITHUB_ENV
+          else
+            echo "❌ Access denied. Not in jury list."
+            echo "jury_verified=false" >> $GITHUB_OUTPUT
+            exit 1
+          fi
+
+  select-aws-credentials:
+    name: 🔑 Select AWS Credentials
+    runs-on: ubuntu-latest
+    needs: 
+      - determine-mode
+      - token-validation
+      - jury-authentication
+    outputs:
+      aws_profile: ${{ steps.select-creds.outputs.aws_profile }}
+      use_test_creds: ${{ steps.select-creds.outputs.use_test_creds }}
+    
+    steps:
+      - name: ⚙️ Select Credentials Based on Mode
+        id: select-creds
+        run: |
+          MODE="${{ needs.determine-mode.outputs.mode }}"
+          
+          case $MODE in
+            "peserta")
+              echo "Using PARTICIPANT AWS credentials"
+              echo "aws_profile=participant" >> $GITHUB_OUTPUT
+              echo "use_test_creds=false" >> $GITHUB_OUTPUT
+              ;;
+            
+            "juri-test")
+              echo "Using JURY TEST AWS credentials"
+              echo "aws_profile=jury-test" >> $GITHUB_OUTPUT
+              echo "use_test_creds=true" >> $GITHUB_OUTPUT
+              ;;
+            
+            "admin")
+              echo "Using ADMIN AWS credentials"
+              echo "aws_profile=admin" >> $GITHUB_OUTPUT
+              echo "use_test_creds=false" >> $GITHUB_OUTPUT
+              ;;
+          esac
+
+  deploy-frontend:
+    name: 🚀 Deploy Frontend
+    runs-on: ubuntu-latest
+    needs: select-aws-credentials
+    if: |
+      (needs.determine-mode.outputs.is_participant_mode == 'true' && needs.token-validation.outputs.token_valid == 'true') ||
+      (needs.determine-mode.outputs.is_jury_test == 'true' && needs.jury-authentication.outputs.jury_verified == 'true') ||
+      (needs.determine-mode.outputs.mode == 'admin')
+    
+    steps:
+      - name: 📥 Checkout code
+        uses: actions/checkout@v4
+      
+      - name: 🎯 Display Mode Information
+        run: |
+          echo "╔══════════════════════════════════════════╗"
+          echo "║         DEPLOYMENT INFORMATION           ║"
+          echo "╠══════════════════════════════════════════╣"
+          echo "║ Mode    : ${{ env.DEPLOYMENT_MODE }}"
+          echo "║ App     : ${{ env.APP_NAME }}"
+          echo "║ ID      : ${{ env.DEPLOYMENT_ID }}"
+          echo "║ Actor   : ${{ github.actor }}"
+          echo "║ Time    : $(date)"
+          echo "╚══════════════════════════════════════════╝"
+          
+          if [ "${{ env.DEPLOYMENT_MODE }}" = "peserta-mode" ]; then
+            echo "👤 Participant: ${{ env.LKS_PARTICIPANT_NAME }} (${{ env.LKS_PARTICIPANT_ID }})"
+          elif [ "${{ env.DEPLOYMENT_MODE }}" = "juri-test-mode" ]; then
+            echo "👨‍⚖️ Jury Testing: ${{ env.JURY_TEST_ID }}"
+            echo "⚙️ Environment: ${{ env.TEST_ENVIRONMENT }}"
+            echo "🗑️ Destroy after: ${{ env.DESTROY_AFTER_TEST }}"
+          fi
+      
+      - name: 🔑 Configure AWS Credentials (Dynamic)
+        id: aws-creds
+        run: |
+          # Select credentials based on mode
+          MODE="${{ env.DEPLOYMENT_MODE }}"
+          
+          case $MODE in
+            "peserta-mode")
+              echo "Using participant AWS credentials"
+              echo "AWS_ACCESS_KEY_ID=${{ secrets.AWS_ACCESS_KEY_ID }}" >> $GITHUB_ENV
+              echo "AWS_SECRET_ACCESS_KEY=${{ secrets.AWS_SECRET_ACCESS_KEY }}" >> $GITHUB_ENV
+              echo "AWS_SESSION_TOKEN=${{ secrets.AWS_SESSION_TOKEN }}" >> $GITHUB_ENV
+              ;;
+            
+            "juri-test-mode"|"admin-mode")
+              echo "Using jury/test AWS credentials"
+              echo "AWS_ACCESS_KEY_ID=${{ secrets.JURY_AWS_ACCESS_KEY_ID }}" >> $GITHUB_ENV
+              echo "AWS_SECRET_ACCESS_KEY=${{ secrets.JURY_AWS_SECRET_ACCESS_KEY }}" >> $GITHUB_ENV
+              echo "AWS_SESSION_TOKEN=${{ secrets.JURY_AWS_SESSION_TOKEN }}" >> $GITHUB_ENV
+              ;;
+          esac
+      
+      - name: ⚙️ Setup AWS CLI
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ env.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ env.AWS_SECRET_ACCESS_KEY }}
+          aws-session-token: ${{ env.AWS_SESSION_TOKEN }}
+          aws-region: ${{ env.AWS_REGION }}
+      
+      - name: ✅ Verify AWS Access
+        run: |
+          echo "Verifying AWS access..."
+          aws sts get-caller-identity
+          echo "✅ AWS credentials verified"
+          
+          # Tampilkan identitas
+          IDENTITY=$(aws sts get-caller-identity --output json)
+          echo "Account: $(echo $IDENTITY | jq -r '.Account')"
+          echo "User ID: $(echo $IDENTITY | jq -r '.UserId')"
+          echo "ARN: $(echo $IDENTITY | jq -r '.Arn')"
+      
+      - name: 📋 Validate Deployment Files
+        run: |
+          echo "Validating required files..."
+          
+          # Check frontend directory exists
+          if [ ! -d "frontend" ]; then
+            echo "❌ Frontend directory not found"
+            exit 1
+          fi
+          
+          # Check essential files
+          for file in frontend/index.html frontend/app.js amplify.yml; do
+            if [ -f "$file" ]; then
+              echo "✅ $file found"
+            else
+              echo "⚠️ $file not found (may cause deployment issues)"
+            fi
+          done
+          
+          echo "File validation completed"
+      
+      - name: 🏗️ Create/Update Amplify App
+        id: amplify-setup
+        run: |
+          APP_NAME="${{ env.APP_NAME }}"
+          
+          echo "Setting up Amplify app: $APP_NAME"
+          
+          # Cek apakah app sudah ada
+          APP_ID=$(aws amplify list-apps \
+            --query "apps[?name=='$APP_NAME'].appId" \
+            --output text)
+          
+          if [ -z "$APP_ID" ]; then
+            echo "Creating new Amplify app..."
+            
+            # Untuk juri testing, gunakan repo dummy atau current
+            if [ "${{ env.DEPLOYMENT_MODE }}" = "juri-test-mode" ]; then
+              REPO="https://github.com/${{ github.repository }}"
+              echo "Using repository: $REPO"
+            else
+              REPO="https://github.com/${{ github.repository }}"
+            fi
+            
+            APP_ID=$(aws amplify create-app \
+              --name "$APP_NAME" \
+              --repository "$REPO" \
+              --platform WEB \
+              --oauth-token ${{ secrets.GITHUB_TOKEN }} \
+              --environment-variables "MODE=${{ env.DEPLOYMENT_MODE }},DEPLOYMENT_ID=${{ env.DEPLOYMENT_ID }}" \
+              --query 'app.appId' \
+              --output text)
+            
+            echo "🎉 New Amplify app created: $APP_ID"
+            
+            # Create branch
+            aws amplify create-branch \
+              --app-id $APP_ID \
+              --branch-name main \
+              --stage PRODUCTION \
+              --enable-auto-build \
+              --enable-performance-mode
+            
+            echo "✅ Branch 'main' created"
+          else
+            echo "✅ Amplify app already exists: $APP_ID"
+          fi
+          
+          echo "app_id=$APP_ID" >> $GITHUB_OUTPUT
+      
+      - name: ⚡ Deploy to Amplify
+        id: deploy
+        run: |
+          echo "Starting deployment..."
+          
+          JOB_ID=$(aws amplify start-job \
+            --app-id ${{ steps.amplify-setup.outputs.app_id }} \
+            --branch-name main \
+            --job-type RELEASE \
+            --query 'jobSummary.jobId' \
+            --output text)
+          
+          echo "🚀 Deployment job started: $JOB_ID"
+          echo "job_id=$JOB_ID" >> $GITHUB_OUTPUT
+          
+          # Monitor deployment
+          echo "⏳ Monitoring deployment..."
+          
+          for i in {1..60}; do  # Max 10 minutes
+            STATUS=$(aws amplify get-job \
+              --app-id ${{ steps.amplify-setup.outputs.app_id }} \
+              --branch-name main \
+              --job-id $JOB_ID \
+              --query 'job.summary.status' \
+              --output text 2>/dev/null || echo "PENDING")
+            
+            echo "[$(date +%H:%M:%S)] Status: $STATUS"
+            
+            case $STATUS in
+              "SUCCEED")
+                echo "🎉 Deployment successful!"
+                echo "status=success" >> $GITHUB_OUTPUT
+                break
+                ;;
+              "FAILED"|"CANCELLED")
+                echo "❌ Deployment failed: $STATUS"
+                echo "status=failed" >> $GITHUB_OUTPUT
+                exit 1
+                ;;
+            esac
+            
+            sleep 10
+          done
+          
+          if [ "$STATUS" != "SUCCEED" ]; then
+            echo "⚠️ Deployment timeout or still in progress"
+            echo "status=timeout" >> $GITHUB_OUTPUT
+          fi
+      
+      - name: 🌐 Get Application URL
+        if: steps.deploy.outputs.status == 'success'
+        id: get-url
+        run: |
+          DOMAIN=$(aws amplify get-app \
+            --app-id ${{ steps.amplify-setup.outputs.app_id }} \
+            --query 'app.defaultDomain' \
+            --output text)
+          
+          APP_URL="https://main.$DOMAIN"
+          
+          echo "🌐 Application URL: $APP_URL"
+          echo "app_url=$APP_URL" >> $GITHUB_OUTPUT
+          echo "APP_URL=$APP_URL" >> $GITHUB_ENV
+          
+          # Test URL accessibility (optional)
+          echo "Testing URL accessibility..."
+          curl -s -o /dev/null -w "HTTP Status: %{http_code}\n" "$APP_URL" || true
+      
+      - name: 🗑️ Cleanup Test Resources (Jury Mode Only)
+        if: |
+          env.DEPLOYMENT_MODE == 'juri-test-mode' && 
+          github.event.inputs.destroy_after_test == 'true' &&
+          steps.deploy.outputs.status == 'success'
+        run: |
+          echo "🧹 Cleaning up test resources..."
+          
+          APP_ID="${{ steps.amplify-setup.outputs.app_id }}"
+          
+          echo "Deleting Amplify app: $APP_ID"
+          
+          # Delete the app
+          aws amplify delete-app \
+            --app-id $APP_ID
+            
+          echo "✅ Test resources cleaned up"
+      
+      - name: 📊 Create Deployment Summary
+        if: always()
+        run: |
+          echo "## 🏆 DEPLOYMENT SUMMARY" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          
+          echo "### 🎯 Mode: ${{ env.DEPLOYMENT_MODE }}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          
+          case ${{ env.DEPLOYMENT_MODE }} in
+            "peserta-mode")
+              echo "**👤 Peserta:** ${{ env.LKS_PARTICIPANT_NAME }}" >> $GITHUB_STEP_SUMMARY
+              echo "**🎓 ID:** ${{ env.LKS_PARTICIPANT_ID }}" >> $GITHUB_STEP_SUMMARY
+              echo "" >> $GITHUB_STEP_SUMMARY
+              ;;
+            
+            "juri-test-mode")
+              echo "**👨‍⚖️ Juri:** ${{ github.actor }}" >> $GITHUB_STEP_SUMMARY
+              echo "**🧪 Test ID:** ${{ env.JURY_TEST_ID }}" >> $GITHUB_STEP_SUMMARY
+              echo "**⚙️ Environment:** ${{ env.TEST_ENVIRONMENT }}" >> $GITHUB_STEP_SUMMARY
+              echo "" >> $GITHUB_STEP_SUMMARY
+              ;;
+            
+            "admin-mode")
+              echo "**⚙️ Admin:** ${{ github.actor }}" >> $GITHUB_STEP_SUMMARY
+              echo "" >> $GITHUB_STEP_SUMMARY
+              ;;
+          esac
+          
+          echo "### 📋 Deployment Details" >> $GITHUB_STEP_SUMMARY
+          echo "- **Deployment ID:** ${{ env.DEPLOYMENT_ID }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **App Name:** ${{ env.APP_NAME }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Region:** ${{ env.AWS_REGION }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Timestamp:** $(date '+%Y-%m-%d %H:%M:%S')" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          
+          if [ "${{ steps.deploy.outputs.status }}" = "success" ]; then
+            echo "### ✅ DEPLOYMENT SUCCESS" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "🔗 **Application URL:** [${{ env.APP_URL }}](${{ env.APP_URL }})" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "**App ID:** ${{ steps.amplify-setup.outputs.app_id }}" >> $GITHUB_STEP_SUMMARY
+            echo "**Job ID:** ${{ steps.deploy.outputs.job_id }}" >> $GITHUB_STEP_SUMMARY
+            
+            if [ "${{ env.DEPLOYMENT_MODE }}" = "juri-test-mode" ] && [ "${{ github.event.inputs.destroy_after_test }}" = "true" ]; then
+              echo "" >> $GITHUB_STEP_SUMMARY
+              echo "🧹 **Test resources have been cleaned up**" >> $GITHUB_STEP_SUMMARY
+            fi
+          else
+            echo "### ❌ DEPLOYMENT FAILED" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "Status: ${{ steps.deploy.outputs.status }}" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "⚠️ Please check the logs for details." >> $GITHUB_STEP_SUMMARY
+          fi
+          
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "---" >> $GITHUB_STEP_SUMMARY
+          echo "*Processed by GitHub Actions*" >> $GITHUB_STEP_SUMMARY
+
+  send-notifications:
+    name: 📨 Send Notifications
+    runs-on: ubuntu-latest
+    needs: [determine-mode, deploy-frontend]
+    if: always()
+    
+    steps:
+      - name: 📊 Prepare Notification
+        run: |
+          # Prepare notification based on mode
+          MODE="${{ needs.determine-mode.outputs.mode }}"
+          
+          case $MODE in
+            "peserta")
+              SUBJECT="🏆 LKS - Deployment: ${{ env.LKS_PARTICIPANT_NAME }}"
+              ;;
+            "juri-test")
+              SUBJECT="🧪 Juri Test - ${{ github.actor }}"
+              ;;
+            "admin")
+              SUBJECT="⚙️ Admin Deployment - ${{ github.actor }}"
+              ;;
+          esac
+          
+          echo "SUBJECT=$SUBJECT" >> $GITHUB_ENV
+      
+      - name: 📧 Send Email Notification (Optional)
+        if: success()
+        uses: dawidd6/action-send-mail@v3
+        with:
+          server_address: smtp.gmail.com
+          server_port: 465
+          username: ${{ secrets.EMAIL_USER }}
+          password: ${{ secrets.EMAIL_PASSWORD }}
+          subject: "${{ env.SUBJECT }} - ${{ needs.deploy-frontend.result }}"
+          to: ${{ secrets.JURY_EMAILS }}
+          from: "LKS Deployment Bot <noreply@lks.cloud>"
+          html_body: |
+            <h2>${{ env.SUBJECT }}</h2>
+            <p><strong>Status:</strong> ${{ needs.deploy-frontend.result }}</p>
+            <p><strong>Deployment ID:</strong> ${{ env.DEPLOYMENT_ID }}</p>
+            <p><strong>App Name:</strong> ${{ env.APP_NAME }}</p>
+            <p><strong>URL:</strong> <a href="${{ env.APP_URL }}">${{ env.APP_URL }}</a></p>
+            <p><strong>GitHub Run:</strong> <a href="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}">View Details</a></p>
+            <hr>
+            <p><em>Sent by LKS Cloud Computing Deployment System</em></p>
+
+  generate-reports:
+    name: 📄 Generate Reports
+    runs-on: ubuntu-latest
+    needs: [deploy-frontend, send-notifications]
+    if: always()
+    
+    steps:
+      - name: 📋 Create Detailed Report
+        run: |
+          # Generate JSON report
+          cat > deployment-report.json << EOF
+          {
+            "deployment": {
+              "id": "${{ env.DEPLOYMENT_ID }}",
+              "mode": "${{ env.DEPLOYMENT_MODE }}",
+              "status": "${{ needs.deploy-frontend.result }}",
+              "timestamp": "$(date -u +'%Y-%m-%dT%H:%M:%SZ')",
+              "app_name": "${{ env.APP_NAME }}",
+              "app_url": "${{ env.APP_URL || '' }}"
+            },
+            "user": {
+              "github_actor": "${{ github.actor }}",
+              "participant_id": "${{ env.LKS_PARTICIPANT_ID || '' }}",
+              "participant_name": "${{ env.LKS_PARTICIPANT_NAME || '' }}",
+              "jury_id": "${{ env.JURY_TEST_ID || '' }}"
+            },
+            "github": {
+              "repository": "${{ github.repository }}",
+              "run_id": "${{ github.run_id }}",
+              "run_url": "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+            },
+            "aws": {
+              "region": "${{ env.AWS_REGION }}",
+              "app_id": "${{ steps.amplify-setup.outputs.app_id || '' }}"
+            }
+          }
+          EOF
+          
+          echo "📄 Report generated"
+          cat deployment-report.json
+      
+      - name: 📎 Upload Report as Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: report-${{ env.DEPLOYMENT_ID }}
+          path: deployment-report.json
+          retention-days: 90
