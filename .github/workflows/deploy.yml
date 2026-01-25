@@ -33,17 +33,18 @@ on:
 env:
   AWS_REGION: us-east-1
   COMPETITION_NAME: "LKS Cloud Computing"
-  OWNER_EMAIL: "ndhaboy@gmail.com"  # ⬅️ GANTI DENGAN EMAIL ANDA
+  OWNER_EMAIL: "handi@seamolec.org"  # ⬅️ GANTI DENGAN EMAIL ANDA
 
 jobs:
   # ========== EMAIL TRACKING & VALIDATION ==========
   track-and-notify-owner:
     name: 📧 Track Fork Deployment & Notify Owner
     runs-on: ubuntu-latest
-    if: github.event_name == 'workflow_dispatch'  # Hanya untuk manual trigger
     outputs:
       email_valid: ${{ steps.validate.outputs.email_valid }}
       is_fork: ${{ steps.check-fork.outputs.is_fork }}
+      user_email: ${{ steps.get-email.outputs.user_email }}
+      deployment_purpose: ${{ steps.get-purpose.outputs.deployment_purpose }}
     
     steps:
       - name: 🔍 Check if Repository is Fork
@@ -51,14 +52,14 @@ jobs:
         run: |
           # Cek apakah ini repository fork
           REPO_OWNER="${{ github.repository_owner }}"
-          ORIGINAL_OWNERS="handipradana,OWNER_USERNAME"  # ⬅️ TAMBAHKAN USERNAME ANDA
+          ORIGINAL_OWNERS="handipradana"  # ⬅️ GANTI DENGAN USERNAME GITHUB ANDA
+          
+          echo "Repository Owner: $REPO_OWNER"
+          echo "Original Owners: $ORIGINAL_OWNERS"
           
           if [[ ! $ORIGINAL_OWNERS =~ $REPO_OWNER ]]; then
             echo "📌 Repository ini adalah FORK"
             echo "is_fork=true" >> $GITHUB_OUTPUT
-            
-            # Dapatkan repo asli jika memungkinkan
-            echo "Original repo: handipradana/${{ github.event.repository.name }}" >> $GITHUB_ENV
             echo "FORK_OWNER=${{ github.actor }}" >> $GITHUB_ENV
             echo "FORK_REPO=${{ github.repository }}" >> $GITHUB_ENV
             echo "IS_FORKED_REPO=true" >> $GITHUB_ENV
@@ -68,9 +69,33 @@ jobs:
             echo "IS_FORKED_REPO=false" >> $GITHUB_ENV
           fi
       
-      - name: 📧 Validate Email Format
+      - name: 📝 Get User Email and Purpose
+        id: get-email
+        run: |
+          # Untuk workflow_dispatch: ambil dari inputs
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            USER_EMAIL="${{ github.event.inputs.requester_email }}"
+            DEPLOYMENT_PURPOSE="${{ github.event.inputs.deployment_purpose }}"
+            echo "Workflow Dispatch Mode"
+            echo "User email from input: $USER_EMAIL"
+            echo "Purpose from input: $DEPLOYMENT_PURPOSE"
+          else
+            # Untuk push/pull_request: gunakan GitHub email atau actor
+            USER_EMAIL="${{ github.actor }}@users.noreply.github.com"
+            DEPLOYMENT_PURPOSE="Automatic deployment via ${{ github.event_name }}"
+            echo "Push/Pull Request Mode"
+            echo "Generated email: $USER_EMAIL"
+            echo "Generated purpose: $DEPLOYMENT_PURPOSE"
+          fi
+          
+          echo "user_email=$USER_EMAIL" >> $GITHUB_OUTPUT
+          echo "deployment_purpose=$DEPLOYMENT_PURPOSE" >> $GITHUB_OUTPUT
+          echo "USER_EMAIL=$USER_EMAIL" >> $GITHUB_ENV
+          echo "DEPLOYMENT_PURPOSE=$DEPLOYMENT_PURPOSE" >> $GITHUB_ENV
+      
+      - name: 📧 Validate Email Format (for workflow_dispatch only)
         id: validate-email
-        if: env.IS_FORKED_REPO == 'true'
+        if: github.event_name == 'workflow_dispatch'
         run: |
           EMAIL="${{ github.event.inputs.requester_email }}"
           
@@ -82,91 +107,169 @@ jobs:
           
           echo "✅ Email format valid: $EMAIL"
           echo "email_valid=true" >> $GITHUB_OUTPUT
-          echo "USER_EMAIL=$EMAIL" >> $GITHUB_ENV
+      
+      - name: ✅ Skip Email Validation (for push/pull_request)
+        id: skip-validation
+        if: github.event_name != 'workflow_dispatch'
+        run: |
+          echo "⏭️ Skipping email validation for ${{ github.event_name }}"
+          echo "email_valid=true" >> $GITHUB_OUTPUT
       
       - name: 📨 Send Immediate Notification to Owner via SMTP2GO
-        if: env.IS_FORKED_REPO == 'true' && steps.validate-email.outputs.email_valid == 'true'
+        if: steps.check-fork.outputs.is_fork == 'true' && steps.validate-email.outputs.email_valid == 'true'
         uses: dawidd6/action-send-mail@v3
         with:
           # Konfigurasi SMTP2GO
           server_address: mail.smtp2go.com
-          server_port: 2525  # Port SMTP2GO: 2525, 465, atau 587
+          server_port: 2525
           username: ${{ secrets.SMTP2GO_USERNAME }}
           password: ${{ secrets.SMTP2GO_PASSWORD }}
-          subject: "🚨 NEW DEPLOYMENT ATTEMPT FROM FORK: ${{ github.actor }}"
+          subject: "🚨 DEPLOYMENT DETECTED FROM FORK: ${{ github.actor }}"
           to: ${{ env.OWNER_EMAIL }}
-          from: "GitHub Actions Alert <noreply@yourdomain.com>"  # ⬅️ SESUAIKAN DENGAN EMAIL TERVERIFIKASI DI SMTP2GO
+          from: "GitHub Actions Alert <noreply@yourdomain.com>"
           html_body: |
             <!DOCTYPE html>
             <html>
-            <head>
-              <style>
-                body { font-family: Arial, sans-serif; line-height: 1.6; max-width: 600px; margin: 0 auto; }
-                .alert { background: #fff3cd; border: 1px solid #ffc107; padding: 15px; border-radius: 5px; margin: 15px 0; }
-                .info-box { background: #f8f9fa; padding: 15px; border-radius: 5px; margin: 15px 0; }
-                table { width: 100%; border-collapse: collapse; }
-                td { padding: 8px 0; border-bottom: 1px solid #dee2e6; }
-                .btn { display: inline-block; padding: 10px 20px; background: #007bff; color: white; text-decoration: none; border-radius: 5px; }
-              </style>
-            </head>
-            <body>
-              <h2 style="color: #dc3545;">🚨 Deployment Alert from Forked Repository</h2>
-              
-              <div class="alert">
-                <h3 style="margin-top: 0;">⚠️ Someone is deploying from your forked repository!</h3>
-                <p>This is an automated alert that someone triggered a deployment from a fork of your repository.</p>
+            <body style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+              <div style="background: #dc3545; padding: 20px; color: white; text-align: center;">
+                <h2 style="margin: 0;">🚨 Deployment Detected</h2>
+                <p style="opacity: 0.9;">From forked repository</p>
               </div>
               
-              <div class="info-box">
-                <h3>👤 User Information</h3>
-                <table>
-                  <tr><td style="width: 140px;"><strong>GitHub Username:</strong></td><td><a href="https://github.com/${{ github.actor }}">@${{ github.actor }}</a></td></tr>
-                  <tr><td><strong>Provided Email:</strong></td><td>${{ github.event.inputs.requester_email }}</td></tr>
-                  <tr><td><strong>Forked Repository:</strong></td><td><a href="https://github.com/${{ github.repository }}">${{ github.repository }}</a></td></tr>
-                  <tr><td><strong>Original Repository:</strong></td><td><a href="https://github.com/handipradana/${{ github.event.repository.name }}">handipradana/${{ github.event.repository.name }}</a></td></tr>
-                </table>
+              <div style="padding: 20px; background: #f8f9fa;">
+                <div style="background: white; border-radius: 5px; padding: 20px; margin: 15px 0; box-shadow: 0 2px 4px rgba(0,0,0,0.1);">
+                  <h3 style="margin-top: 0; color: #dc3545;">📌 Forked Repository Activity</h3>
+                  <table style="width: 100%;">
+                    <tr>
+                      <td style="padding: 10px; border-bottom: 1px solid #eee; width: 150px;"><strong>GitHub User:</strong></td>
+                      <td style="padding: 10px; border-bottom: 1px solid #eee;">
+                        <a href="https://github.com/${{ github.actor }}">@${{ github.actor }}</a>
+                      </td>
+                    </tr>
+                    <tr>
+                      <td style="padding: 10px; border-bottom: 1px solid #eee;"><strong>Event Type:</strong></td>
+                      <td style="padding: 10px; border-bottom: 1px solid #eee;">
+                        ${{ github.event_name }}
+                      </td>
+                    </tr>
+                    <tr>
+                      <td style="padding: 10px; border-bottom: 1px solid #eee;"><strong>User Email:</strong></td>
+                      <td style="padding: 10px; border-bottom: 1px solid #eee;">
+                        ${{ env.USER_EMAIL }}
+                      </td>
+                    </tr>
+                    <tr>
+                      <td style="padding: 10px; border-bottom: 1px solid #eee;"><strong>Purpose:</strong></td>
+                      <td style="padding: 10px; border-bottom: 1px solid #eee;">
+                        ${{ env.DEPLOYMENT_PURPOSE }}
+                      </td>
+                    </tr>
+                    <tr>
+                      <td style="padding: 10px; border-bottom: 1px solid #eee;"><strong>Repository:</strong></td>
+                      <td style="padding: 10px; border-bottom: 1px solid #eee;">
+                        <a href="https://github.com/${{ github.repository }}">${{ github.repository }}</a>
+                      </td>
+                    </tr>
+                    <tr>
+                      <td style="padding: 10px;"><strong>Original Repo:</strong></td>
+                      <td style="padding: 10px;">
+                        <a href="https://github.com/handipradana/${{ github.event.repository.name }}">handipradana/${{ github.event.repository.name }}</a>
+                      </td>
+                    </tr>
+                  </table>
+                </div>
+                
+                <div style="background: #e9ecef; padding: 15px; border-radius: 5px; margin-top: 20px;">
+                  <h4 style="margin-top: 0;">🔗 Quick Links</h4>
+                  <ul style="list-style: none; padding: 0;">
+                    <li style="margin-bottom: 8px;">📝 <a href="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}">View Workflow Run Details</a></li>
+                    <li style="margin-bottom: 8px;">👤 <a href="https://github.com/${{ github.actor }}">View User Profile</a></li>
+                    <li style="margin-bottom: 8px;">📂 <a href="https://github.com/${{ github.repository }}">View Forked Repository</a></li>
+                    <li style="margin-bottom: 8px;">🏠 <a href="https://github.com/handipradana/${{ github.event.repository.name }}">View Original Repository</a></li>
+                  </ul>
+                </div>
+                
+                <div style="margin-top: 20px; padding: 15px; background: #fff3cd; border-radius: 5px; border-left: 4px solid #ffc107;">
+                  <p><strong>⚠️ Note:</strong> This deployment was triggered by a <strong>forked repository</strong>.</p>
+                  <p>Trigger: <code>${{ github.event_name }}</code> to branch <code>${{ github.ref_name }}</code></p>
+                </div>
               </div>
               
-              <div class="info-box">
-                <h3>🎯 Deployment Details</h3>
-                <table>
-                  <tr><td style="width: 140px;"><strong>Event:</strong></td><td>${{ github.event_name }}</td></tr>
-                  <tr><td><strong>Purpose:</strong></td><td>${{ github.event.inputs.deployment_purpose }}</td></tr>
-                  <tr><td><strong>Workflow Run:</strong></td><td><a href="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}">View Run #${{ github.run_id }}</a></td></tr>
-                  <tr><td><strong>Timestamp:</strong></td><td>$(date '+%Y-%m-%d %H:%M:%S UTC')</td></tr>
-                </table>
+              <div style="padding: 15px; background: #343a40; color: #adb5bd; font-size: 12px; text-align: center;">
+                <p>This is an automated notification from your GitHub Actions workflow.<br>
+                Run ID: ${{ github.run_id }} | Time: $(date '+%Y-%m-%d %H:%M:%S UTC')</p>
+              </div>
+            </body>
+            </html>
+      
+      - name: 📧 Notify Original Repository Push (Optional)
+        if: steps.check-fork.outputs.is_fork == 'false'
+        uses: dawidd6/action-send-mail@v3
+        with:
+          server_address: mail.smtp2go.com
+          server_port: 2525
+          username: ${{ secrets.SMTP2GO_USERNAME }}
+          password: ${{ secrets.SMTP2GO_PASSWORD }}
+          subject: "📦 Deployment Started: ${{ github.actor }}"
+          to: ${{ env.OWNER_EMAIL }}
+          from: "GitHub Actions <noreply@yourdomain.com>"
+          html_body: |
+            <!DOCTYPE html>
+            <html>
+            <body style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+              <div style="background: #007bff; padding: 20px; color: white; text-align: center;">
+                <h2 style="margin: 0;">📦 Deployment Started</h2>
+                <p style="opacity: 0.9;">From original repository</p>
               </div>
               
-              <div style="text-align: center; margin: 25px 0;">
-                <a href="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}" class="btn">
-                  🔍 Monitor This Deployment
-                </a>
+              <div style="padding: 20px;">
+                <p>Hello Repository Owner,</p>
+                
+                <p>A deployment has been started from your <strong>original repository</strong>.</p>
+                
+                <div style="background: #f8f9fa; padding: 15px; border-radius: 5px; margin: 15px 0;">
+                  <h4 style="margin-top: 0;">📋 Deployment Details</h4>
+                  <table style="width: 100%;">
+                    <tr><td style="padding: 8px; width: 120px;"><strong>Triggered By:</strong></td><td style="padding: 8px;">@${{ github.actor }}</td></tr>
+                    <tr><td style="padding: 8px;"><strong>Event:</strong></td><td style="padding: 8px;">${{ github.event_name }}</td></tr>
+                    <tr><td style="padding: 8px;"><strong>Branch:</strong></td><td style="padding: 8px;">${{ github.ref_name }}</td></tr>
+                    <tr><td style="padding: 8px;"><strong>Repository:</strong></td><td style="padding: 8px;">${{ github.repository }}</td></tr>
+                    <tr><td style="padding: 8px;"><strong>Commit:</strong></td><td style="padding: 8px;"><code>${{ github.sha|slice:0,7 }}</code></td></tr>
+                  </table>
+                </div>
+                
+                <div style="text-align: center; margin: 20px 0;">
+                  <a href="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}" 
+                     style="background: #28a745; color: white; padding: 10px 20px; text-decoration: none; border-radius: 5px;">
+                    🚀 Monitor Deployment
+                  </a>
+                </div>
               </div>
               
-              <hr>
-              <p style="font-size: 12px; color: #6c757d;">
-                This is an automated notification from your GitHub Actions workflow.<br>
-                You're receiving this because you own the original repository.
-              </p>
+              <div style="padding: 15px; background: #e9ecef; font-size: 12px; color: #6c757d; text-align: center;">
+                <p>This is an automated notification from your GitHub Actions workflow.</p>
+              </div>
             </body>
             </html>
       
       - name: 💾 Store Deployment Request Data
-        if: env.IS_FORKED_REPO == 'true'
         run: |
           # Simpan data ke file untuk digunakan nanti
           cat > deployment-request.json << EOF
           {
             "deployment_request": {
               "github_user": "${{ github.actor }}",
-              "user_email": "${{ github.event.inputs.requester_email }}",
+              "user_email": "${{ env.USER_EMAIL }}",
               "repository": "${{ github.repository }}",
               "original_repo": "handipradana/${{ github.event.repository.name }}",
-              "purpose": "${{ github.event.inputs.deployment_purpose }}",
+              "purpose": "${{ env.DEPLOYMENT_PURPOSE }}",
               "run_id": "${{ github.run_id }}",
               "run_url": "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}",
               "timestamp": "$(date -Iseconds)",
-              "is_fork": true
+              "is_fork": ${{ steps.check-fork.outputs.is_fork == 'true' }},
+              "event_type": "${{ github.event_name }}",
+              "branch": "${{ github.ref_name }}",
+              "commit": "${{ github.sha }}"
             }
           }
           EOF
@@ -179,8 +282,7 @@ jobs:
     runs-on: ubuntu-latest
     needs: track-and-notify-owner
     if: |
-      (github.event_name == 'push' || github.event_name == 'pull_request') ||
-      (github.event_name == 'workflow_dispatch' && (needs.track-and-notify-owner.outputs.email_valid == 'true' || needs.track-and-notify-owner.outputs.is_fork == 'false'))
+      needs.track-and-notify-owner.outputs.email_valid == 'true'
     
     steps:
       - name: Checkout code
@@ -194,20 +296,20 @@ jobs:
           echo "║ Event    : ${{ github.event_name }}"
           echo "║ Actor    : ${{ github.actor }}"
           echo "║ Repository: ${{ github.repository }}"
+          echo "║ Is Fork  : ${{ needs.track-and-notify-owner.outputs.is_fork }}"
           echo "║ Ref      : ${{ github.ref_name }}"
           echo "║ SHA      : ${{ github.sha }}"
           echo "║ Run ID   : ${{ github.run_id }}"
           echo "╚══════════════════════════════════════════════════╝"
           
-          # Tampilkan info tambahan untuk workflow_dispatch
-          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
-            echo ""
-            echo "📧 User Email: ${{ github.event.inputs.requester_email || 'Not provided' }}"
-            echo "🎯 Purpose: ${{ github.event.inputs.deployment_purpose || 'Not specified' }}"
-            
-            if [ "${{ needs.track-and-notify-owner.outputs.is_fork }}" = "true" ]; then
-              echo "📍 This is a FORKED repository deployment"
-            fi
+          echo ""
+          echo "📧 User Email: ${{ needs.track-and-notify-owner.outputs.user_email }}"
+          echo "🎯 Purpose: ${{ needs.track-and-notify-owner.outputs.deployment_purpose }}"
+          
+          if [ "${{ needs.track-and-notify-owner.outputs.is_fork }}" = "true" ]; then
+            echo "📍 This is a FORKED repository deployment"
+          else
+            echo "🏠 This is an ORIGINAL repository deployment"
           fi
       
       - name: Configure AWS credentials
@@ -356,12 +458,17 @@ jobs:
           echo "## 🚀 Frontend Deployment Summary" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           
-          # Info deployment dari fork
-          if [ "${{ github.event_name }}" = "workflow_dispatch" ] && [ "${{ needs.track-and-notify-owner.outputs.is_fork }}" = "true" ]; then
+          # Info deployment
+          if [ "${{ needs.track-and-notify-owner.outputs.is_fork }}" = "true" ]; then
             echo "### 📍 Deployment dari Fork" >> $GITHUB_STEP_SUMMARY
             echo "- **GitHub User:** ${{ github.actor }}" >> $GITHUB_STEP_SUMMARY
-            echo "- **Email:** ${{ github.event.inputs.requester_email }}" >> $GITHUB_STEP_SUMMARY
-            echo "- **Purpose:** ${{ github.event.inputs.deployment_purpose }}" >> $GITHUB_STEP_SUMMARY
+            echo "- **Email:** ${{ needs.track-and-notify-owner.outputs.user_email }}" >> $GITHUB_STEP_SUMMARY
+            echo "- **Purpose:** ${{ needs.track-and-notify-owner.outputs.deployment_purpose }}" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "### 🏠 Deployment dari Repository Original" >> $GITHUB_STEP_SUMMARY
+            echo "- **Triggered By:** ${{ github.actor }}" >> $GITHUB_STEP_SUMMARY
+            echo "- **Event:** ${{ github.event_name }}" >> $GITHUB_STEP_SUMMARY
             echo "" >> $GITHUB_STEP_SUMMARY
           fi
           
@@ -410,7 +517,7 @@ jobs:
     name: 📨 Send Post-Deployment Notifications
     runs-on: ubuntu-latest
     needs: [track-and-notify-owner, deploy-frontend]
-    if: always() && (github.event_name == 'workflow_dispatch' || github.ref == 'refs/heads/main')
+    if: always()
     
     steps:
       - name: Determine notification recipients
@@ -420,7 +527,7 @@ jobs:
           if [ "${{ needs.track-and-notify-owner.outputs.is_fork }}" = "true" ]; then
             echo "recipients=owner_and_user" >> $GITHUB_OUTPUT
             echo "OWNER_EMAIL=${{ env.OWNER_EMAIL }}" >> $GITHUB_ENV
-            echo "USER_EMAIL=${{ github.event.inputs.requester_email }}" >> $GITHUB_ENV
+            echo "USER_EMAIL=${{ needs.track-and-notify-owner.outputs.user_email }}" >> $GITHUB_ENV
           else
             echo "recipients=owner_only" >> $GITHUB_OUTPUT
             echo "OWNER_EMAIL=${{ env.OWNER_EMAIL }}" >> $GITHUB_ENV
@@ -440,14 +547,13 @@ jobs:
       - name: 📧 Send Final Notification to Repository Owner via SMTP2GO
         uses: dawidd6/action-send-mail@v3
         with:
-          # Konfigurasi SMTP2GO
           server_address: mail.smtp2go.com
-          server_port: 2525  # Port SMTP2GO: 2525, 465, atau 587
+          server_port: 2525
           username: ${{ secrets.SMTP2GO_USERNAME }}
           password: ${{ secrets.SMTP2GO_PASSWORD }}
           subject: "${{ env.STATUS_EMOJI }} Deployment ${{ env.STATUS_TEXT }}: ${{ github.actor }}"
           to: ${{ env.OWNER_EMAIL }}
-          from: "GitHub Actions Deployment <noreply@yourdomain.com>"  # ⬅️ SESUAIKAN DENGAN EMAIL TERVERIFIKASI DI SMTP2GO
+          from: "GitHub Actions Deployment <noreply@yourdomain.com>"
           html_body: |
             <!DOCTYPE html>
             <html>
@@ -476,20 +582,21 @@ jobs:
                         <a href="https://github.com/${{ github.actor }}">@${{ github.actor }}</a>
                       </td>
                     </tr>
-                    ${{ needs.track-and-notify-owner.outputs.is_fork == 'true' && '<tr><td style="padding: 10px; border-bottom: 1px solid #eee;"><strong>User Email:</strong></td><td style="padding: 10px; border-bottom: 1px solid #eee;">' || '' }}
-                    ${{ needs.track-and-notify-owner.outputs.is_fork == 'true' && github.event.inputs.requester_email || '' }}
-                    ${{ needs.track-and-notify-owner.outputs.is_fork == 'true' && '</td></tr>' || '' }}
                     <tr>
                       <td style="padding: 10px; border-bottom: 1px solid #eee;"><strong>Repository:</strong></td>
                       <td style="padding: 10px; border-bottom: 1px solid #eee;">
                         <a href="https://github.com/${{ github.repository }}">${{ github.repository }}</a>
                       </td>
                     </tr>
-                    ${{ needs.track-and-notify-owner.outputs.is_fork == 'true' && '<tr><td style="padding: 10px;"><strong>Original Repo:</strong></td><td style="padding: 10px;"><a href="https://github.com/handipradana/' || '' }}
-                    ${{ needs.track-and-notify-owner.outputs.is_fork == 'true' && github.event.repository.name || '' }}
-                    ${{ needs.track-and-notify-owner.outputs.is_fork == 'true' && '">handipradana/' || '' }}
-                    ${{ needs.track-and-notify-owner.outputs.is_fork == 'true' && github.event.repository.name || '' }}
-                    ${{ needs.track-and-notify-owner.outputs.is_fork == 'true' && '</a></td></tr>' || '' }}
+                    <tr>
+                      <td style="padding: 10px; border-bottom: 1px solid #eee;"><strong>Is Fork:</strong></td>
+                      <td style="padding: 10px; border-bottom: 1px solid #eee;">
+                        ${{ needs.track-and-notify-owner.outputs.is_fork == 'true' && 'Yes' || 'No' }}
+                      </td>
+                    </tr>
+                    ${{ needs.track-and-notify-owner.outputs.is_fork == 'true' && '<tr><td style="padding: 10px;"><strong>User Email:</strong></td><td style="padding: 10px;">' || '' }}
+                    ${{ needs.track-and-notify-owner.outputs.is_fork == 'true' && needs.track-and-notify-owner.outputs.user_email || '' }}
+                    ${{ needs.track-and-notify-owner.outputs.is_fork == 'true' && '</td></tr>' || '' }}
                   </table>
                 </div>
                 
@@ -503,9 +610,6 @@ jobs:
                     <li style="margin-bottom: 8px;">📝 <a href="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}">View Workflow Run Details</a></li>
                     <li style="margin-bottom: 8px;">👤 <a href="https://github.com/${{ github.actor }}">View User Profile</a></li>
                     <li style="margin-bottom: 8px;">📂 <a href="https://github.com/${{ github.repository }}">View Repository</a></li>
-                    ${{ needs.track-and-notify-owner.outputs.is_fork == 'true' && '<li style="margin-bottom: 8px;">🏠 <a href="https://github.com/handipradana/' || '' }}
-                    ${{ needs.track-and-notify-owner.outputs.is_fork == 'true' && github.event.repository.name || '' }}
-                    ${{ needs.track-and-notify-owner.outputs.is_fork == 'true' && '">View Original Repository</a></li>' || '' }}
                   </ul>
                 </div>
               </div>
@@ -521,14 +625,13 @@ jobs:
         if: needs.track-and-notify-owner.outputs.is_fork == 'true' && needs.deploy-frontend.result == 'success'
         uses: dawidd6/action-send-mail@v3
         with:
-          # Konfigurasi SMTP2GO
           server_address: mail.smtp2go.com
           server_port: 2525
           username: ${{ secrets.SMTP2GO_USERNAME }}
           password: ${{ secrets.SMTP2GO_PASSWORD }}
           subject: "✅ Your Deployment is Successful! - GitHub Actions"
-          to: ${{ github.event.inputs.requester_email }}
-          from: "GitHub Actions <noreply@yourdomain.com>"  # ⬅️ SESUAIKAN DENGAN EMAIL TERVERIFIKASI DI SMTP2GO
+          to: ${{ needs.track-and-notify-owner.outputs.user_email }}
+          from: "GitHub Actions <noreply@yourdomain.com>"
           html_body: |
             <!DOCTYPE html>
             <html>
@@ -541,18 +644,18 @@ jobs:
               <div style="padding: 25px; background: #f8f9fa;">
                 <p>Hello <strong>@${{ github.actor }}</strong>,</p>
                 
-                <p>Your deployment from the forked repository <strong>${{ github.repository }}</strong> has completed successfully!</p>
+                <p>Your deployment has completed successfully!</p>
                 
                 <div style="background: white; padding: 20px; border-radius: 5px; margin: 20px 0; box-shadow: 0 2px 4px rgba(0,0,0,0.1);">
                   <h3 style="margin-top: 0;">🌐 Your Application is Live!</h3>
-                  <p style="text-align: center; margin: 20px 0;">
-                    <a href="${{ env.FINAL_APP_URL }}" style="background: #007bff; color: white; padding: 12px 30px; text-decoration: none; border-radius: 5px; font-size: 16px;">
-                      Open Your Application
-                    </a>
-                  </p>
-                  <p style="text-align: center; font-size: 14px; color: #666;">
-                    URL: <a href="${{ env.FINAL_APP_URL }}">${{ env.FINAL_APP_URL }}</a>
-                  </p>
+                  ${{ env.FINAL_APP_URL && '<p style="text-align: center; margin: 20px 0;"><a href="' || '' }}
+                  ${{ env.FINAL_APP_URL || '' }}
+                  ${{ env.FINAL_APP_URL && '" style="background: #007bff; color: white; padding: 12px 30px; text-decoration: none; border-radius: 5px; font-size: 16px;">Open Your Application</a></p>' || '' }}
+                  ${{ env.FINAL_APP_URL && '<p style="text-align: center; font-size: 14px; color: #666;">URL: <a href="' || '' }}
+                  ${{ env.FINAL_APP_URL || '' }}
+                  ${{ env.FINAL_APP_URL && '">' || '' }}
+                  ${{ env.FINAL_APP_URL || 'Application URL not available' }}
+                  ${{ env.FINAL_APP_URL && '</a></p>' || '' }}
                 </div>
                 
                 <div style="background: #e9ecef; padding: 15px; border-radius: 5px; margin-top: 20px;">
@@ -560,14 +663,12 @@ jobs:
                   <ul style="list-style: none; padding: 0;">
                     <li style="margin-bottom: 8px;"><strong>GitHub User:</strong> @${{ github.actor }}</li>
                     <li style="margin-bottom: 8px;"><strong>Repository:</strong> ${{ github.repository }}</li>
-                    <li style="margin-bottom: 8px;"><strong>Original Repository:</strong> handipradana/${{ github.event.repository.name }}</li>
                     <li style="margin-bottom: 8px;"><strong>Deployment ID:</strong> ${{ github.run_id }}</li>
                     <li style="margin-bottom: 8px;"><strong>Timestamp:</strong> $(date '+%Y-%m-%d %H:%M:%S UTC')</li>
                   </ul>
                 </div>
                 
                 <div style="margin-top: 25px; padding-top: 15px; border-top: 1px solid #dee2e6; color: #6c757d; font-size: 14px;">
-                  <p><strong>Note:</strong> The repository owner has been notified of this deployment.</p>
                   <p>You can view the full workflow run here: 
                     <a href="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}">
                       View Workflow Details
@@ -577,8 +678,7 @@ jobs:
               </div>
               
               <div style="padding: 15px; background: #343a40; color: #adb5bd; font-size: 12px; text-align: center; border-radius: 0 0 5px 5px;">
-                <p>This is an automated message from GitHub Actions.<br>
-                Original repository: handipradana/${{ github.event.repository.name }}</p>
+                <p>This is an automated message from GitHub Actions.</p>
               </div>
             </body>
             </html>
@@ -595,14 +695,12 @@ jobs:
               "actor": "${{ github.actor }}",
               "repository": "${{ github.repository }}",
               "is_fork": ${{ needs.track-and-notify-owner.outputs.is_fork == 'true' }},
-              "user_email": "${{ github.event.inputs.requester_email || 'N/A' }}",
-              "purpose": "${{ github.event.inputs.deployment_purpose || 'N/A' }}",
+              "user_email": "${{ needs.track-and-notify-owner.outputs.user_email }}",
+              "purpose": "${{ needs.track-and-notify-owner.outputs.deployment_purpose }}",
               "deployment_status": "${{ needs.deploy-frontend.result }}",
               "app_url": "${{ env.FINAL_APP_URL || 'N/A' }}",
               "amplify_app_id": "${{ steps.check-app.outputs.app_id || 'N/A' }}",
-              "workflow_url": "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}",
-              "email_sent_to_owner": true,
-              "email_sent_to_user": ${{ needs.track-and-notify-owner.outputs.is_fork == 'true' && needs.deploy-frontend.result == 'success' }}
+              "workflow_url": "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
             }
           }
           EOF
