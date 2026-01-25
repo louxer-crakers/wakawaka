@@ -126,7 +126,7 @@ jobs:
           password: ${{ secrets.SMTP2GO_PASSWORD }}
           subject: "🚨 DEPLOYMENT DETECTED FROM FORK: ${{ github.actor }}"
           to: ${{ env.OWNER_EMAIL }}
-          from: "GitHub Actions Alert <aws@seamolec.org>"
+          from: "aws@seamolec.org"  # ⬅️ FIXED: Hanya email tanpa nama
           html_body: |
             <!DOCTYPE html>
             <html>
@@ -212,7 +212,7 @@ jobs:
           password: ${{ secrets.SMTP2GO_PASSWORD }}
           subject: "📦 Deployment Started: ${{ github.actor }}"
           to: ${{ env.OWNER_EMAIL }}
-          from: "GitHub Actions <aws@seamolec.org>"
+          from: "aws@seamolec.org"  # ⬅️ FIXED: Hanya email tanpa nama
           html_body: |
             <!DOCTYPE html>
             <html>
@@ -234,7 +234,11 @@ jobs:
                     <tr><td style="padding: 8px;"><strong>Event:</strong></td><td style="padding: 8px;">${{ github.event_name }}</td></tr>
                     <tr><td style="padding: 8px;"><strong>Branch:</strong></td><td style="padding: 8px;">${{ github.ref_name }}</td></tr>
                     <tr><td style="padding: 8px;"><strong>Repository:</strong></td><td style="padding: 8px;">${{ github.repository }}</td></tr>
-                    <tr><td style="padding: 8px;"><strong>Commit:</strong></td><td style="padding: 8px;"><code>${{ github.sha }}</code></td></tr>
+                    <tr><td style="padding: 8px;"><strong>Commit:</strong></td><td style="padding: 8px;">
+                      <a href="${{ github.server_url }}/${{ github.repository }}/commit/${{ github.sha }}">
+                        ${{ github.sha }}
+                      </a>
+                    </td></tr>
                   </table>
                 </div>
                 
@@ -553,7 +557,7 @@ jobs:
           password: ${{ secrets.SMTP2GO_PASSWORD }}
           subject: "${{ env.STATUS_EMOJI }} Deployment ${{ env.STATUS_TEXT }}: ${{ github.actor }}"
           to: ${{ env.OWNER_EMAIL }}
-          from: "GitHub Actions Deployment <handi@seamolec.org>"
+          from: "aws@seamolec.org"  # ⬅️ FIXED: Hanya email tanpa nama
           html_body: |
             <!DOCTYPE html>
             <html>
@@ -631,7 +635,7 @@ jobs:
           password: ${{ secrets.SMTP2GO_PASSWORD }}
           subject: "✅ Your Deployment is Successful! - GitHub Actions"
           to: ${{ needs.track-and-notify-owner.outputs.user_email }}
-          from: "GitHub Actions <aws@seamolec.org>"
+          from: "aws@seamolec.org"  # ⬅️ FIXED: Hanya email tanpa nama
           html_body: |
             <!DOCTYPE html>
             <html>
