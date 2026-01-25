@@ -126,7 +126,7 @@ jobs:
           password: ${{ secrets.SMTP2GO_PASSWORD }}
           subject: "🚨 DEPLOYMENT DETECTED FROM FORK: ${{ github.actor }}"
           to: ${{ env.OWNER_EMAIL }}
-          from: "GitHub Actions Alert <noreply@yourdomain.com>"
+          from: "GitHub Actions Alert <aws@seamolec.org>"
           html_body: |
             <!DOCTYPE html>
             <html>
