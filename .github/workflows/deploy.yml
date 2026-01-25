@@ -234,7 +234,7 @@ jobs:
                     <tr><td style="padding: 8px;"><strong>Event:</strong></td><td style="padding: 8px;">${{ github.event_name }}</td></tr>
                     <tr><td style="padding: 8px;"><strong>Branch:</strong></td><td style="padding: 8px;">${{ github.ref_name }}</td></tr>
                     <tr><td style="padding: 8px;"><strong>Repository:</strong></td><td style="padding: 8px;">${{ github.repository }}</td></tr>
-                    <tr><td style="padding: 8px;"><strong>Commit:</strong></td><td style="padding: 8px;"><code>${{ github.sha|slice:0,7 }}</code></td></tr>
+                    <tr><td style="padding: 8px;"><strong>Commit:</strong></td><td style="padding: 8px;"><code>${{ github.sha }}</code></td></tr>
                   </table>
                 </div>
                 
