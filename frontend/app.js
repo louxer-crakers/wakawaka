@@ -1,6 +1,6 @@
 // Configuration - Will be loaded from storage
-let API_ENDPOINT = '';
-let API_KEY = '';
+let API_ENDPOINT = 'https://ij1oi3vqmd.execute-api.us-east-1.amazonaws.com/production';
+let API_KEY = 'q2yulN4iYe49KW8CrxGlq797KvJNMZIt1RdyskaK';
 let AWS_REGION = 'us-east-1';
 let DEBUG_MODE = true;
 
