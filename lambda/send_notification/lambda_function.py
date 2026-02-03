@@ -9,7 +9,6 @@ from datetime import datetime
 sns_client = boto3.client("sns")
 SNS_TOPIC_ARN = os.environ.get("SNS_TOPIC_ARN")
 
-
 def lambda_handler(event, context):
     """
     Send notifications via SNS

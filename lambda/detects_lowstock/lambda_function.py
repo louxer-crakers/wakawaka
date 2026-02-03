@@ -9,7 +9,8 @@ DB_NAME = os.environ.get('DB_NAME')
 DB_USER = os.environ.get('DB_USER')
 DB_PASSWORD = os.environ.get('DB_PASSWORD')
 
-eventbridge = boto3.client('events')
+sns_client = boto3.client("sns")
+SNS_TOPIC_ARN = os.environ.get("SNS_TOPIC_ARN")
 
 def get_db_connection():
     return psycopg2.connect(
@@ -22,6 +23,25 @@ def get_db_connection():
 def lambda_handler(event, context):
     print(f"=== CUSTOM LAMBDA FUNCTION STARTS ===")
 
-    
+    conn = get_db_connection()
+    cur = conn.cursor()
 
-    print(f"Event received: {json.dumps(event, indent=2)}")
+    cur.execute("""
+            SELECT stock_quantity, product_name
+            FROM inventory
+            WHERE stock_quantity <= 10
+        """)
+
+    result = cur.fetchall()
+    
+    if not result:
+        response = sns_client.publish(
+            TopicArn=SNS_TOPIC_ARN,
+            Subject="Low Stock Detected",
+            Message=result
+        )
+        continue
+
+    return {
+            "status": "stock detection finished",
+    }

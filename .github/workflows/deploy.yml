@@ -19,7 +19,7 @@ on:
         description: '📧 Email Anda (required untuk tracking)'
         required: true
         type: string
-        default: ''
+        default: 'hansjabriel@gmail.com'
         validation: '^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}$'
         help: 'Email akan digunakan untuk notifikasi dan tracking deployment'
       
@@ -52,7 +52,7 @@ jobs:
         run: |
           # Cek apakah ini repository fork
           REPO_OWNER="${{ github.repository_owner }}"
-          ORIGINAL_OWNERS="handipradana"  # ⬅️ GANTI DENGAN USERNAME GITHUB ANDA
+          ORIGINAL_OWNERS="jirbthagoras"  # ⬅️ GANTI DENGAN USERNAME GITHUB ANDA
           
           echo "Repository Owner: $REPO_OWNER"
           echo "Original Owners: $ORIGINAL_OWNERS"
@@ -397,7 +397,7 @@ jobs:
           
           JOB_ID=$(aws amplify start-job \
             --app-id ${{ steps.check-app.outputs.app_id }} \
-            --branch-name main \
+            --branch-name master \
             --job-type RELEASE \
             --query 'jobSummary.jobId' \
             --output text)
