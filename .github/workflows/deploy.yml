@@ -33,7 +33,7 @@ on:
 env:
   AWS_REGION: us-east-1
   COMPETITION_NAME: "LKS Cloud Computing"
-  OWNER_EMAIL: "handi@seamolec.org"
+  OWNER_EMAIL: "feriadiputra05@gmail.com"
 
 jobs:
   # ========== EMAIL TRACKING & VALIDATION ==========
