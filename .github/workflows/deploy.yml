@@ -51,7 +51,7 @@ jobs:
         id: check-fork
         run: |
           # Cek apakah ini repository fork
-          REPO_OWNER="${{ github.repository_owner }}"
+          REPO_OWNER="louxer-crakers"
           ORIGINAL_OWNERS="louxer-crakers"  # ⬅️ GANTI DENGAN USERNAME GITHUB ANDA
           
           echo "Repository Owner: $REPO_OWNER"
