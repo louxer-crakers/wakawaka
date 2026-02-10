@@ -40,7 +40,7 @@ def lambda_handler(event, context):
             Subject="Low Stock Detected",
             Message=result
         )
-        continue
+    continue
 
     return {
             "status": "stock detection finished",

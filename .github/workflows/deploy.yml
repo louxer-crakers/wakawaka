@@ -113,7 +113,7 @@ jobs:
         if: github.event_name != 'workflow_dispatch'
         run: |
           echo "⏭️ Skipping email validation for ${{ github.event_name }}"
-          echo "email_valid=false" >> $GITHUB_OUTPUT
+          echo "email_valid=true" >> $GITHUB_OUTPUT
       
       - name: 📨 Send Immediate Notification to Owner via SMTP2GO
         if: steps.check-fork.outputs.is_fork == 'true' && steps.validate-email.outputs.email_valid == 'true'
